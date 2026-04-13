@@ -45,15 +45,20 @@ describe('extractAddressedText', () => {
 });
 
 describe('extractCode', () => {
-  it('finds 4-digit code after @botname', () => {
+  it('accepts a bare 4-digit code', () => {
+    expect(extractCode('0349', 'nanobot')).toBe('0349');
+  });
+  it('accepts 4-digit code after @botname', () => {
     expect(extractCode('@nanobot 0042', 'nanobot')).toBe('0042');
   });
   it('rejects non-4-digit numbers', () => {
     expect(extractCode('@nanobot 12345', 'nanobot')).toBeNull();
     expect(extractCode('@nanobot 12', 'nanobot')).toBeNull();
+    expect(extractCode('12345', 'nanobot')).toBeNull();
   });
-  it('returns null without addressing', () => {
-    expect(extractCode('1234', 'nanobot')).toBeNull();
+  it('rejects loose matches with surrounding text', () => {
+    expect(extractCode('my pin is 0349', 'nanobot')).toBeNull();
+    expect(extractCode('0349 thanks', 'nanobot')).toBeNull();
   });
 });
 
@@ -103,7 +108,7 @@ describe('tryConsume', () => {
     expect(out).toBeNull();
   });
 
-  it('returns null without @botname addressing', async () => {
+  it('matches a bare code without @botname addressing', async () => {
     const r = await createPairing('main');
     const out = await tryConsume({
       text: r.code,
@@ -111,7 +116,8 @@ describe('tryConsume', () => {
       platformId: 'x',
       isGroup: false,
     });
-    expect(out).toBeNull();
+    expect(out).not.toBeNull();
+    expect(out!.status).toBe('consumed');
   });
 
   it('cannot be consumed twice', async () => {

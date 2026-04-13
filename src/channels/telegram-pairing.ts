@@ -3,10 +3,12 @@
  *
  * BotFather hands out tokens with no user binding, so anyone who guesses the
  * bot's username can DM it. Pairing closes that gap: setup creates a one-time
- * 4-digit code and the operator echoes it back as `@botname CODE` from the
- * chat they want to register. The inbound interceptor in telegram.ts matches
- * the code and records the chat (with admin_user_id) before it ever reaches
- * the router.
+ * 4-digit code and the operator echoes it back from the chat they want to
+ * register. The message must be exactly the 4 digits (optionally prefixed by
+ * `@botname ` for groups with privacy ON) — arbitrary messages that happen to
+ * contain a 4-digit number do NOT match. The inbound interceptor in
+ * telegram.ts matches the code and records the chat (with admin_user_id)
+ * before it ever reaches the router.
  *
  * Storage is a JSON file at data/telegram-pairings.json — single-process,
  * read-modify-write under an in-process mutex.
@@ -144,11 +146,15 @@ export function extractAddressedText(text: string, botUsername: string): string 
   return trimmed.slice(m[0].length).trim();
 }
 
-/** Find a 4-digit code in `@botname CODE`-style text. Returns null if none. */
+/**
+ * Extract a pairing code from an inbound message. The message must be exactly
+ * 4 digits (optionally prefixed by `@botname `) — loose matches like
+ * "my pin is 1234" are rejected to avoid false positives from chatter.
+ */
 export function extractCode(text: string, botUsername: string): string | null {
-  const remainder = extractAddressedText(text, botUsername);
-  if (remainder === null) return null;
-  const m = remainder.match(/\b(\d{4})\b/);
+  const addressed = extractAddressedText(text, botUsername);
+  const candidate = (addressed !== null ? addressed : text).trim();
+  const m = candidate.match(/^(\d{4})$/);
   return m ? m[1] : null;
 }
 
