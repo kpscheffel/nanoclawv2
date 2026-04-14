@@ -18,6 +18,7 @@ ARG INSTALL_CJK_FONTS=false
 ARG CLAUDE_CODE_VERSION=2.1.112
 ARG AGENT_BROWSER_VERSION=latest
 ARG VERCEL_VERSION=latest
+ARG OPENCODE_VERSION=latest
 ARG BUN_VERSION=1.3.12
 
 # ---- System dependencies -----------------------------------------------------
@@ -79,7 +80,8 @@ RUN --mount=type=cache,target=/root/.cache/pnpm \
     pnpm install -g \
         "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
         "agent-browser@${AGENT_BROWSER_VERSION}" \
-        "vercel@${VERCEL_VERSION}"
+        "vercel@${VERCEL_VERSION}" \
+        "opencode-ai@${OPENCODE_VERSION}"
 
 # ---- agent-runner ------------------------------------------------------------
 WORKDIR /app

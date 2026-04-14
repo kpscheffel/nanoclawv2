@@ -41,7 +41,7 @@ function log(msg: string): void {
 const CWD = '/workspace/agent';
 
 async function main(): Promise<void> {
-  const providerName = (process.env.AGENT_PROVIDER || 'claude') as ProviderName;
+  const providerName = (process.env.AGENT_PROVIDER || 'claude').toLowerCase() as ProviderName;
   const assistantName = process.env.NANOCLAW_ASSISTANT_NAME;
   const adminUserIds = new Set(
     (process.env.NANOCLAW_ADMIN_USER_IDS || '')

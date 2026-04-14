@@ -34,7 +34,7 @@ Status: [x] done, [~] partial, [ ] not started
 - [x] Mock provider (testing)
 - [x] Provider factory
 - [ ] Codex provider
-- [~] OpenCode provider
+- [x] OpenCode provider
 
 ## Channel Adapters
 

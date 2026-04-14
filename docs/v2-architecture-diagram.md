@@ -31,7 +31,7 @@ flowchart TB
   subgraph Session["Per-Session Container (Docker / Apple Container)"]
     direction TB
     PollLoop["Poll Loop<br/>(container/agent-runner)"]
-    Provider["Claude Agent SDK<br/>(providers: claude, mock, todo: codex/opencode)"]
+    Provider["Agent providers<br/>(claude, opencode, mock; todo: codex)"]
     MCP["MCP Tools<br/>send_message, send_file, edit_message,<br/>add_reaction, send_card, ask_user_question,<br/>schedule_task, create_agent,<br/>install_packages, add_mcp_server, request_rebuild"]
     Skills["Container Skills<br/>(container/skills/)"]
     InDB[("inbound.db<br/>host writes<br/>even seq<br/>messages_in<br/>destinations<br/>processing_ack")]
@@ -88,7 +88,7 @@ sequenceDiagram
   R->>IDB: INSERT messages_in (even seq)
   R->>C: wake container (docker run / already running)
   C->>IDB: poll messages_in
-  C->>C: format xml, stream to Claude SDK
+  C->>C: format xml, stream to selected provider
   C->>ODB: INSERT messages_out (odd seq)<br/>parse <message to="name"> blocks
   D->>ODB: 1s poll (active) / 60s (sweep)
   D->>D: hasDestination() re-validate
