@@ -19,13 +19,6 @@ import {
   startOneCLIApprovalHandler,
   stopOneCLIApprovalHandler,
 } from './onecli-approvals.js';
-import {
-  getCredentialForModal,
-  handleCredentialChannelUnsupported,
-  handleCredentialReject,
-  handleCredentialSubmit,
-  setCredentialDeliveryAdapter,
-} from './credentials.js';
 import { routeInbound } from './router.js';
 import {
   getPendingQuestion,
@@ -93,22 +86,6 @@ async function main(): Promise<void> {
           log.error('Failed to handle question response', { questionId, err });
         });
       },
-      getCredentialForModal,
-      onCredentialReject(credentialId) {
-        handleCredentialReject(credentialId).catch((err) =>
-          log.error('Failed to handle credential reject', { credentialId, err }),
-        );
-      },
-      onCredentialSubmit(credentialId, value) {
-        handleCredentialSubmit(credentialId, value).catch((err) =>
-          log.error('Failed to handle credential submit', { credentialId, err }),
-        );
-      },
-      onCredentialChannelUnsupported(credentialId) {
-        handleCredentialChannelUnsupported(credentialId).catch((err) =>
-          log.error('Failed to handle credential channel-unsupported', { credentialId, err }),
-        );
-      },
     };
   });
 
@@ -135,7 +112,6 @@ async function main(): Promise<void> {
     },
   };
   setDeliveryAdapter(deliveryAdapter);
-  setCredentialDeliveryAdapter(deliveryAdapter);
 
   // 5. Start delivery polls
   startActiveDeliveryPoll();

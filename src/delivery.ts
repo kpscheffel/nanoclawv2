@@ -865,12 +865,6 @@ async function handleSystemAction(
       break;
     }
 
-    case 'request_credential': {
-      const { handleCredentialRequest } = await import('./credentials.js');
-      await handleCredentialRequest(content, session);
-      break;
-    }
-
     default:
       log.warn('Unknown system action', { action });
   }

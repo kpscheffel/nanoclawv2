@@ -664,14 +664,6 @@ registerChannelAdapter('whatsapp', {
           return;
         }
 
-        // Credential request → text fallback (WhatsApp doesn't support modals)
-        if (content.type === 'credential_request' && content.credentialId) {
-          const question = (content.question as string) || 'A credential has been requested.';
-          const text = `Credential request: ${question}\n\nPlease provide this credential through a secure channel (e.g. Discord or Slack).`;
-          const prefixed = ASSISTANT_HAS_OWN_NUMBER ? text : `${ASSISTANT_NAME}: ${text}`;
-          return sendRawMessage(platformId, prefixed);
-        }
-
         // Normal message (with optional file attachments)
         const text = (content.markdown as string) || (content.text as string);
         const hasFiles = message.files && message.files.length > 0;

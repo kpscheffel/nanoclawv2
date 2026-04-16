@@ -38,7 +38,7 @@ Exactly one writer per file — no cross-mount lock contention. Heartbeat is a f
 
 ## Central DB
 
-`data/v2.db` holds everything that isn't per-session: users, user_roles, agent_groups, messaging_groups, wiring, pending_approvals, pending_credentials, user_dms, chat_sdk_* (for the Chat SDK bridge), schema_version. Migrations live at `src/db/migrations/`.
+`data/v2.db` holds everything that isn't per-session: users, user_roles, agent_groups, messaging_groups, wiring, pending_approvals, user_dms, chat_sdk_* (for the Chat SDK bridge), schema_version. Migrations live at `src/db/migrations/`.
 
 ## Key Files
 
@@ -53,7 +53,6 @@ Exactly one writer per file — no cross-mount lock contention. Heartbeat is a f
 | `src/container-runtime.ts` | Runtime selection (Docker vs Apple containers), orphan cleanup |
 | `src/access.ts` | `pickApprover`, `pickApprovalDelivery`, admin resolution for `NANOCLAW_ADMIN_USER_IDS` |
 | `src/onecli-approvals.ts` | OneCLI credentialed-action approval bridge |
-| `src/credentials.ts` | `trigger_credential_collection` host side — modal, OneCLI write-back |
 | `src/user-dm.ts` | Cold-DM resolution + `user_dms` cache |
 | `src/group-init.ts` | Per-agent-group filesystem scaffold (CLAUDE.md, skills, agent-runner-src overlay) |
 | `src/db/` | DB layer — agent_groups, messaging_groups, sessions, user_roles, user_dms, pending_*, migrations |
@@ -65,16 +64,15 @@ Exactly one writer per file — no cross-mount lock contention. Heartbeat is a f
 
 ## Self-Modification
 
-Two tiers of agent self-modification today:
+One tier of agent self-modification today:
 
 1. **`install_packages` / `add_mcp_server` / `request_rebuild`** — changes to the per-agent-group container config only (apt/npm deps, wire an existing MCP server). Admin approval, rebuild, container restart. `container/agent-runner/src/mcp-tools/self-mod.ts`.
-2. **`trigger_credential_collection`** — user provides an API key via a secure modal; value goes straight into OneCLI and never enters agent context. `src/credentials.ts`.
 
-A third tier (direct source-level self-edits via a draft/activate flow) is planned but not yet implemented.
+A second tier (direct source-level self-edits via a draft/activate flow) is planned but not yet implemented.
 
 ## Secrets / Credentials / OneCLI
 
-API keys, OAuth tokens, and auth credentials are managed by the OneCLI gateway. Secrets are injected into per-agent containers at request time — none are passed in env vars or through chat context. `src/onecli-secrets.ts`, `src/onecli-approvals.ts`, `ensureAgent()` in `container-runner.ts`. Run `onecli --help`.
+API keys, OAuth tokens, and auth credentials are managed by the OneCLI gateway. Secrets are injected into per-agent containers at request time — none are passed in env vars or through chat context. `src/onecli-approvals.ts`, `ensureAgent()` in `container-runner.ts`. Run `onecli --help`.
 
 ## Skills
 

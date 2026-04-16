@@ -157,28 +157,6 @@ export interface PendingApproval {
   options_json: string;
 }
 
-// ── Pending credentials (central DB) ──
-
-export type PendingCredentialStatus = 'pending' | 'submitted' | 'saved' | 'rejected' | 'failed';
-
-export interface PendingCredential {
-  id: string;
-  agent_group_id: string;
-  session_id: string | null;
-  name: string;
-  type: 'generic' | 'anthropic';
-  host_pattern: string;
-  path_pattern: string | null;
-  header_name: string | null;
-  value_format: string | null;
-  description: string | null;
-  channel_type: string;
-  platform_id: string;
-  platform_message_id: string | null;
-  status: PendingCredentialStatus;
-  created_at: string;
-}
-
 // ── Agent destinations (central DB) ──
 
 export interface AgentDestination {

@@ -17,19 +17,7 @@ Before any Vercel operation, verify auth:
 vercel whoami --token placeholder
 ```
 
-If this fails with an auth error, collect the credential:
-
-```
-trigger_credential_collection(
-  name: "Vercel API Token",
-  hostPattern: "api.vercel.com",
-  headerName: "Authorization",
-  valueFormat: "Bearer {value}",
-  description: "Vercel personal access token. Create one at https://vercel.com/account/tokens"
-)
-```
-
-Then retry `vercel whoami`.
+If this fails with an auth error, ask the user to add a Vercel token to OneCLI. They can create one at https://vercel.com/account/tokens and register it via `onecli secrets create` on the host. Once added, retry `vercel whoami`.
 
 ## Deploying
 
@@ -96,7 +84,7 @@ echo "value" | vercel env add VAR_NAME production --token placeholder
 | `Error: Rate limited` | Wait and retry. Don't loop — report to user |
 | `Error: You have reached your project limit` | User needs to upgrade Vercel plan or delete unused projects |
 | `ENOTFOUND api.vercel.com` | Network issue. Check proxy connectivity |
-| Auth error after `vercel whoami` | Credential may be expired. Re-run `trigger_credential_collection` |
+| Auth error after `vercel whoami` | Credential may be expired. Ask the user to refresh the Vercel token in OneCLI |
 
 ## Building Websites — Delegate to Frontend Engineer
 

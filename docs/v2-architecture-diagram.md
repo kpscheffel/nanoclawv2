@@ -26,14 +26,13 @@ flowchart TB
   subgraph OneCLI["OneCLI Gateway (0.3.1)"]
     Vault["Agent Vault<br/>secrets + OAuth"]
     Approvals["configureManualApproval<br/>-> pending_approvals"]
-    SecretsFacade["src/onecli-secrets.ts<br/>credential collection"]
   end
 
   subgraph Session["Per-Session Container (Docker / Apple Container)"]
     direction TB
     PollLoop["Poll Loop<br/>(container/agent-runner)"]
     Provider["Claude Agent SDK<br/>(providers: claude, mock, todo: codex/opencode)"]
-    MCP["MCP Tools<br/>send_message, send_file, edit_message,<br/>add_reaction, send_card, ask_user_question,<br/>schedule_task, create_agent,<br/>install_packages, add_mcp_server, request_rebuild,<br/>trigger_credential_collection"]
+    MCP["MCP Tools<br/>send_message, send_file, edit_message,<br/>add_reaction, send_card, ask_user_question,<br/>schedule_task, create_agent,<br/>install_packages, add_mcp_server, request_rebuild"]
     Skills["Container Skills<br/>(container/skills/)"]
     InDB[("inbound.db<br/>host writes<br/>even seq<br/>messages_in<br/>destinations<br/>processing_ack")]
     OutDB[("outbound.db<br/>container writes<br/>odd seq<br/>messages_out<br/>heartbeat file")]
@@ -66,8 +65,6 @@ flowchart TB
   Runner -.mounts.-> Folder
   MCP -.approval.-> Approvals
   Approvals --> Central
-  MCP -.credential req.-> SecretsFacade
-  SecretsFacade --> Vault
   Provider -.API calls.-> Vault
 ```
 

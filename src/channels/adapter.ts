@@ -27,14 +27,6 @@ export interface ChannelSetup {
 
   /** Called when a user clicks a button/action in a card (e.g., ask_user_question response). */
   onAction(questionId: string, selectedOption: string, userId: string): void;
-
-  /** Credential collection hooks — used by chat-sdk-bridge to route the modal flow. */
-  getCredentialForModal?(
-    credentialId: string,
-  ): { name: string; description: string | null; hostPattern: string } | null;
-  onCredentialReject?(credentialId: string): void;
-  onCredentialSubmit?(credentialId: string, value: string): void;
-  onCredentialChannelUnsupported?(credentialId: string): void;
 }
 
 /** Inbound message from adapter to host. */

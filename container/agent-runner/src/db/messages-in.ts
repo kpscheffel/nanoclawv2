@@ -113,19 +113,3 @@ export function findQuestionResponse(questionId: string): MessageInRow | undefin
   return response;
 }
 
-/** Find a pending credential_response system message for a given credential id. */
-export function findCredentialResponse(credentialId: string): MessageInRow | undefined {
-  const inbound = getInboundDb();
-  const outbound = getOutboundDb();
-
-  const response = inbound
-    .prepare("SELECT * FROM messages_in WHERE status = 'pending' AND kind = 'system' AND content LIKE ?")
-    .get(`%"credentialId":"${credentialId}"%`) as MessageInRow | undefined;
-
-  if (!response) return undefined;
-
-  const acked = outbound.prepare('SELECT 1 FROM processing_ack WHERE message_id = ?').get(response.id);
-  if (acked) return undefined;
-
-  return response;
-}
