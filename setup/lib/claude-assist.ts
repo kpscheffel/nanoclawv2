@@ -5,7 +5,8 @@
  *   1. Check `claude` is on PATH — if not, offer to install it via
  *      setup/install-claude.sh. Then check auth via `claude auth status`
  *      — if not signed in, offer to run `claude setup-token` (browser
- *      OAuth). If either is declined or fails, silently skip.
+ *      OAuth with code-paste fallback for headless/remote systems).
+ *      If either is declined or fails, silently skip.
  *   2. Ask the user for consent ("Want me to ask Claude for a fix?").
  *   3. Build a minimal prompt: the one-paragraph situation, the failing
  *      step's name/message/hint, and a short list of *file references*
@@ -20,6 +21,7 @@
  */
 import { execSync, spawn, spawnSync } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import * as p from '@clack/prompts';
@@ -180,14 +182,45 @@ async function ensureClaudeReady(projectRoot: string): Promise<boolean> {
     );
     if (!auth) return false;
 
-    const code = await new Promise<number>((resolve) => {
-      const child = spawn('claude', ['setup-token'], {
+    // setup-token has an interactive TUI; reset terminal to cooked mode
+    // so its prompts render correctly after clack's raw-mode prompts.
+    spawnSync('stty', ['sane'], { stdio: 'inherit' });
+
+    // Run under script(1) to capture the OAuth token from PTY output
+    // while preserving interactive TTY for the browser OAuth flow.
+    // Same approach as register-claude-token.sh, but we set the env var
+    // instead of writing to OneCLI.
+    const tmpfile = path.join(os.tmpdir(), `claude-setup-token-${process.pid}`);
+    try {
+      const isUtilLinux = (() => {
+        try {
+          return execSync('script --version 2>&1', { encoding: 'utf-8' }).includes('util-linux');
+        } catch { return false; }
+      })();
+      const scriptArgs = isUtilLinux
+        ? ['-q', '-c', 'claude setup-token', tmpfile]
+        : ['-q', tmpfile, 'claude', 'setup-token'];
+
+      spawnSync('script', scriptArgs, {
+        cwd: projectRoot,
         stdio: 'inherit',
       });
-      child.on('close', (c) => resolve(c ?? 1));
-      child.on('error', () => resolve(1));
-    });
-    if (code !== 0 || !isClaudeAuthenticated()) {
+
+      if (!isClaudeAuthenticated() && fs.existsSync(tmpfile)) {
+        const raw = fs.readFileSync(tmpfile, 'utf-8');
+        const stripped = raw
+          .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+          .replace(/[\n\r]/g, '');
+        const matches = stripped.match(/(sk-ant-oat[A-Za-z0-9_-]{80,500}AA)/g);
+        if (matches) {
+          process.env.CLAUDE_CODE_OAUTH_TOKEN = matches[matches.length - 1];
+        }
+      }
+    } finally {
+      try { fs.unlinkSync(tmpfile); } catch {}
+    }
+
+    if (!isClaudeAuthenticated()) {
       p.log.error("Couldn't complete Claude sign-in.");
       return false;
     }
