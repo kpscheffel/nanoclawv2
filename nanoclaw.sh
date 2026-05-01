@@ -129,10 +129,46 @@ rm -f  "$PROGRESS_LOG"
 mkdir -p "$STEPS_DIR" "$LOGS_DIR"
 write_header
 
-# NanoClaw wordmark + subtitle — setup:auto will see NANOCLAW_BOOTSTRAPPED=1
-# and skip printing these again, so the flow stays visually continuous.
-printf '\n  %s%s\n' "$(bold 'Nano')" "$(brand_bold 'Claw')"
-printf '  %s\n\n' "$(dim 'Setting up your personal AI assistant')"
+# NanoClaw splash — under-the-sea lobster mascot in truecolor braille,
+# with the figlet wordmark and taglines below. Pre-rendered into
+# assets/setup-splash.txt (built from assets/nanoclaw-icon.png via chafa +
+# figlet); the bash script just streams the literal frame. clack's intro
+# then carries the "let's get you set up" framing — setup:auto sees
+# NANOCLAW_BOOTSTRAPPED=1 and skips re-printing the wordmark.
+cat "$PROJECT_ROOT/assets/setup-splash.txt"
+
+# ─── pre-flight: root user warning (Linux) ────────────────────────────
+if [ "$(uname -s)" = "Linux" ] && [ "$(id -u)" -eq 0 ]; then
+  printf '  %s\n' \
+    "$(red 'Warning: you are running as root.')"
+  printf '  %s\n' \
+    "$(dim "Running NanoClaw as root is not recommended. It can cause permission")"
+  printf '  %s\n\n' \
+    "$(dim "issues with containers, services, and file ownership.")"
+  printf '  %s\n' "$(bold '1)') $(dim 'Show me instructions for creating a new Linux user')"
+  printf '  %s\n\n' "$(bold '2)') $(dim 'Continue setting up NanoClaw as root user (not recommended)')"
+  read -r -p "  $(bold 'Choose [1/2]: ')" ROOT_ANS </dev/tty
+
+  case "${ROOT_ANS:-1}" in
+    2)
+      ph_event setup_root_continued
+      printf '\n'
+      ;;
+    *)
+      ph_event setup_root_aborted
+      printf '\n  %s\n' "$(bold 'To set up a regular user (via SSH):')"
+      printf '  %s\n\n' "$(dim 'Not using SSH? Refer to your hosting provider docs or ask your coding agent to help you set up SSH access.')"
+      printf '  %s\n' "$(dim '1. Create a new user:           adduser nanoclaw')"
+      printf '  %s\n' "$(dim '2. Add to sudo group:           usermod -aG sudo nanoclaw')"
+      printf '  %s\n' "$(dim '3. Enable passwordless sudo:    echo "nanoclaw ALL=(ALL) NOPASSWD:ALL" | tee /etc/sudoers.d/nanoclaw')"
+      printf '  %s\n' "$(dim '4. Log out:                     exit')"
+      printf '  %s\n' "$(dim '5. Log back in as the new user: ssh nanoclaw@your-server')"
+      printf '  %s\n' "$(dim '6. Clone the repo:              git clone https://github.com/qwibitai/nanoclaw.git && cd nanoclaw')"
+      printf '  %s\n\n' "$(dim '7. Re-run setup:               bash nanoclaw.sh')"
+      exit 1
+      ;;
+  esac
+fi
 
 # ─── pre-flight: Homebrew on macOS ─────────────────────────────────────
 # setup/install-node.sh and setup/install-docker.sh both require `brew` on
@@ -188,9 +224,6 @@ BOOTSTRAP_RAW="${STEPS_DIR}/01-bootstrap.log"
 BOOTSTRAP_LABEL="Installing the basics"
 BOOTSTRAP_START=$(date +%s)
 
-# One-line "why" that teaches a differentiator while the user waits.
-printf '%s  %s\n' "$(gray '│')" \
-  "$(dim "NanoClaw is small and runs entirely on your machine. Yours to modify.")"
 spinner_start "$BOOTSTRAP_LABEL"
 
 # Run in the background so we can tick elapsed time. Capture exit code via
@@ -222,7 +255,7 @@ rm -f "$BOOTSTRAP_EXIT_FILE"
 BOOTSTRAP_DUR=$(( $(date +%s) - BOOTSTRAP_START ))
 
 if [ "$BOOTSTRAP_RC" -eq 0 ]; then
-  spinner_success "Basics installed" "$BOOTSTRAP_DUR"
+  spinner_success "Basics ready" "$BOOTSTRAP_DUR"
   write_bootstrap_entry success "$BOOTSTRAP_DUR" "$BOOTSTRAP_RAW"
 else
   spinner_failure "Couldn't install the basics" "$BOOTSTRAP_DUR"
@@ -259,4 +292,5 @@ fi
 # --silent suppresses pnpm's `> nanoclaw@2.0.0 setup:auto / > tsx setup/auto.ts`
 # preamble so the flow continues visually from "Basics installed" straight
 # into setup:auto's spinner. exec so signals (Ctrl-C) propagate directly.
-exec pnpm --silent run setup:auto
+# `-- "$@"` forwards any flags (e.g. --onecli-api-host) to setup:auto.
+exec pnpm --silent run setup:auto -- "$@"
