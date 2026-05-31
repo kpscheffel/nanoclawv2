@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+
 import { findByName, getAllDestinations, type DestinationEntry } from './destinations.js';
 import { getPendingMessages, markProcessing, markCompleted, markFailed, type MessageInRow } from './db/messages-in.js';
 import { writeMessageOut } from './db/messages-out.js';
@@ -9,6 +12,58 @@ import {
 } from './db/session-state.js';
 import { formatMessages, extractRouting, categorizeMessage, isClearCommand, stripInternalTags, type RoutingContext } from './formatter.js';
 import type { AgentProvider, AgentQuery, ProviderEvent } from './providers/types.js';
+
+/**
+ * Per-turn cache-usage telemetry. Logs to stderr (visible while the container
+ * is alive via `docker logs`) and appends a JSONL line to
+ * `/workspace/agent/cache-usage.jsonl` so the host can grep/aggregate after
+ * the container exits. See shared/prompt-caching.md for what to look for:
+ * if `cache_read_input_tokens` is consistently zero, a silent invalidator
+ * (e.g. non-deterministic destinations ordering, a timestamp in the
+ * system-prompt addendum, a tool list that varies per turn) has poisoned
+ * the prefix. The `--rm` flag means container stderr is lost on exit, so
+ * the JSONL file is the durable record.
+ */
+const CACHE_USAGE_LOG = '/workspace/agent/cache-usage.jsonl';
+
+function recordCacheUsage(
+  providerName: string,
+  continuation: string | undefined,
+  subtype: string | null | undefined,
+  numTurns: number,
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens: number;
+    cache_read_input_tokens: number;
+  },
+): void {
+  const total =
+    usage.input_tokens + usage.cache_creation_input_tokens + usage.cache_read_input_tokens;
+  const hitRate = total > 0 ? usage.cache_read_input_tokens / total : 0;
+
+  log(
+    `cache-usage: input=${usage.input_tokens} cache_read=${usage.cache_read_input_tokens} cache_creation=${usage.cache_creation_input_tokens} output=${usage.output_tokens} hit=${(hitRate * 100).toFixed(1)}%`,
+  );
+
+  const row = {
+    ts: new Date().toISOString(),
+    provider: providerName,
+    session_id: continuation ?? null,
+    subtype: subtype ?? null,
+    num_turns: numTurns,
+    ...usage,
+    total_input: total,
+    hit_rate: hitRate,
+  };
+
+  try {
+    fs.mkdirSync(path.dirname(CACHE_USAGE_LOG), { recursive: true });
+    fs.appendFileSync(CACHE_USAGE_LOG, JSON.stringify(row) + '\n');
+  } catch (err) {
+    log(`cache-usage log write failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
 
 const POLL_INTERVAL_MS = 1000;
 const ACTIVE_POLL_INTERVAL_MS = 500;
@@ -407,6 +462,22 @@ async function processQuery(
         if (event.subtype === undefined) {
           if (event.text) dispatchResultText(event.text, routing);
           continue;
+        }
+
+        // Cache-usage telemetry: SDK populates `usage` only on terminal
+        // result events. Record before the failure/success branch so we
+        // capture stats from both outcomes — failed turns still burned
+        // tokens that should show up in the rolling log.
+        if (event.usage) {
+          recordCacheUsage(
+            providerName,
+            queryContinuation,
+            event.subtype,
+            // `num_turns` is on the SDK message but we don't carry it through;
+            // 0 means "unknown" — non-zero would mean we threaded it through.
+            0,
+            event.usage,
+          );
         }
 
         if (isFailureSubtype(event.subtype)) {

@@ -309,7 +309,21 @@ export class ClaudeProvider implements AgentProvider {
         } else if (message.type === 'result') {
           const text = 'result' in message ? (message as { result?: string }).result ?? null : null;
           const subtype = (message as { subtype?: string }).subtype ?? null;
-          yield { type: 'result', text, subtype };
+          const rawUsage = (message as unknown as { usage?: Record<string, number | unknown> }).usage;
+          // SDK's `usage.cache_creation` is a richer object (BetaCacheCreation)
+          // — we only want the scalar token counts, which arrive as the
+          // `*_input_tokens` siblings. Coerce defensively in case the SDK
+          // shape evolves.
+          const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
+          const usage = rawUsage
+            ? {
+                input_tokens: num(rawUsage.input_tokens),
+                output_tokens: num(rawUsage.output_tokens),
+                cache_creation_input_tokens: num(rawUsage.cache_creation_input_tokens),
+                cache_read_input_tokens: num(rawUsage.cache_read_input_tokens),
+              }
+            : undefined;
+          yield { type: 'result', text, subtype, usage };
         } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'api_retry') {
           yield { type: 'error', message: 'API retry', retryable: true };
         } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'rate_limit_event') {

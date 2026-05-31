@@ -78,7 +78,24 @@ export type ProviderEvent =
    * that should NOT be treated as the turn's terminal result. The poll-loop
    * uses this to distinguish a clean completion from a silent SDK failure.
    */
-  | { type: 'result'; text: string | null; subtype?: string | null }
+  | {
+      type: 'result';
+      text: string | null;
+      subtype?: string | null;
+      /**
+       * Token usage for this turn — surfaced so the poll-loop can record
+       * cache-hit telemetry. `cache_read_input_tokens` is the cheap side
+       * (~0.1× of base input price); `cache_creation_input_tokens` paid the
+       * write premium; `input_tokens` is the uncached remainder at full price.
+       * Providers without a usage signal omit this field.
+       */
+      usage?: {
+        input_tokens: number;
+        output_tokens: number;
+        cache_creation_input_tokens: number;
+        cache_read_input_tokens: number;
+      };
+    }
   | { type: 'error'; message: string; retryable: boolean; classification?: string }
   | { type: 'progress'; message: string }
   /**
