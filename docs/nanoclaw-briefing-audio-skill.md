@@ -1,0 +1,291 @@
+# NanoClaw — Morning Briefing Audio Publishing Skill
+
+## Purpose
+
+Extend the existing morning update pipeline so that, after the daily markdown report is fully assembled, NanoClaw converts it to a clean audio briefing and publishes it to TaskMasterQuest's podcast feed. The result is a daily episode that lands in Apple Podcasts on the iPhone, fully playable on CarPlay with proper scrub/pause/resume controls and a complete back catalogue.
+
+This skill **adds two new tasks** to the morning pipeline. It does not replace the existing WhatsApp delivery — that continues unchanged. The audio publish is independent: if it fails, WhatsApp still goes out, and vice versa.
+
+## Where this fits in the morning pipeline
+
+Current schedule (from existing morning update skill):
+
+```
+06:00  (gather) International news
+06:15  (gather) Tasks for today
+06:20  (gather) Weather — Boskruin
+06:25  (send)   Morning Report to WhatsApp
+```
+
+New schedule with this skill added:
+
+```
+06:00  (gather)  International news
+06:15  (gather)  Tasks for today
+06:20  (gather)  Weather — Boskruin
+06:25  (send)    Morning Report to WhatsApp        ← unchanged
+06:26  (publish) Generate TTS audio
+06:28  (publish) Publish briefing to TaskMasterQuest
+```
+
+The two new tasks run sequentially. The TTS step writes an MP3 to disk; the publish step reads it and uploads. Separating them means a TTS failure (e.g. ElevenLabs API outage) doesn't block a retry of the upload, and an upload failure (e.g. TaskMasterQuest down) doesn't waste the TTS spend on a re-run.
+
+## Environment variables to add
+
+```
+# TTS provider (choose one)
+TTS_PROVIDER=openai                            # 'openai' | 'elevenlabs' | 'hume' | 'piper'
+OPENAI_API_KEY=...                             # if TTS_PROVIDER=openai
+OPENAI_TTS_MODEL=gpt-4o-mini-tts               # steerable model; accepts the 'instructions' parameter
+OPENAI_TTS_VOICE=sage                          # 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'fable' | 'nova' | 'onyx' | 'sage' | 'shimmer' | 'verse'
+
+# TaskMasterQuest publishing
+TMQ_API_BASE=https://task-master-quest-production.up.railway.app
+TMQ_PUBLISH_KEY=tmq_...                        # publish API key minted from TaskMasterQuest UI for this NanoClaw instance
+TMQ_FEED_SLUG=morning-briefing                 # internal feed slug (per-user namespace inside your account)
+
+# Local paths
+BRIEFING_AUDIO_DIR=/home/petep/nanoclaw/reports/audio
+BRIEFING_REPORT_DIR=/home/petep/nanoclaw/reports/daily
+```
+
+Default to OpenAI's `gpt-4o-mini-tts` with the Sage voice. This model is steerable via the `instructions` parameter, which means the news-anchor vibe is baked into every API call rather than left to the model's default. Provider can be swapped later by changing `TTS_PROVIDER`.
+
+## One-time setup (before running)
+
+The publish API key is minted from the TaskMasterQuest web UI by Peter (signed in with his Firebase account) and pasted into NanoClaw's env vars. The key is owned by Peter's user account — every briefing NanoClaw publishes is automatically scoped to him, and no other user can see or fetch his audio.
+
+1. Sign in to TaskMasterQuest in the browser as Peter.
+2. Go to **Settings → Publish API keys** (or call `POST /api/briefing-keys` with the name `nanoclaw-pi5`).
+3. The raw key (`tmq_...`) is shown once. Copy it.
+4. On the Pi: add it to NanoClaw's env file as `TMQ_PUBLISH_KEY`. Set `TMQ_FEED_SLUG=morning-briefing`.
+5. The public feed URL is shown on the same TaskMasterQuest screen. It contains Peter's obscure slug (`mb-<16 hex chars>`). Copy this URL once — Apple Podcasts subscribes to it; NanoClaw never needs it.
+6. Open Apple Podcasts on the iPhone → Library → ⋯ → Add a Show by URL → paste the feed URL. The show will appear (initially empty) and start polling.
+
+If the publish key ever leaks, revoke it from the same TaskMasterQuest UI and mint a new one. Revocation takes effect immediately — the next publish attempt with the old key returns 401.
+
+## Task 5 — Publish: Generate TTS audio
+
+**Schedule:** `06:26` daily
+
+**Depends on:** Task 4 (Send: Morning Report) — implicitly via timing, not a hard dependency. If Task 4 fails the markdown still exists; this task only needs the markdown file.
+
+**Inputs:**
+- `~/nanoclaw/reports/daily/YYYY-MM-DD-daily-report.md` (the assembled markdown report)
+
+**Outputs:**
+- `~/nanoclaw/reports/audio/YYYY-MM-DD-briefing.mp3` (the generated audio)
+- `~/nanoclaw/reports/audio/YYYY-MM-DD-briefing.txt` (the cleaned narration script, kept for debugging and as the transcript sent to TaskMasterQuest)
+- Log entry to the NanoClaw task log
+
+### What to do
+
+1. **Read the markdown report.** If the file doesn't exist (because earlier tasks failed), log the failure and skip — no audio to generate. Do not retry.
+
+2. **Convert the markdown to a narration script.** This is the most important step for audio quality. Apply these transformations in order:
+
+   a. **Strip the report-generator footer line** (e.g. `_Report generated by NanoClaw_`).
+
+   b. **Replace section headings** (`## International News`, `## Tasks for Today`, `## Weather — Boskruin`) with spoken-style lead-ins:
+      - `## International News` → `\n\nInternational news.\n\n`
+      - `## Tasks for Today` → `\n\nTasks for today.\n\n`
+      - `## Weather — Boskruin` → `\n\nWeather for Boskruin.\n\n`
+
+   c. **Remove all markdown formatting characters** — `*`, `_`, `` ` ``, `~`, `#`. Bold and italic markers add no value when spoken and TTS engines often pronounce them literally.
+
+   d. **Convert markdown links** `[text](url)` → just `text`. URLs do not narrate well.
+
+   e. **Strip code blocks** entirely (anything between triple backticks). Leave a single sentence: "Code block omitted from audio."
+
+   f. **Strip tables** entirely. Replace with: "A table is shown in the written report."
+
+   g. **Convert bullet lists** to natural prose where possible. A simple approach that works well: replace `- ` at line start with nothing, and ensure each bullet ends with a full stop. The TTS engine will pace correctly between sentences.
+
+   h. **Normalise abbreviations and numbers** that don't speak well:
+      - `R 1,000` → `1,000 rand`
+      - `USD/ZAR` → `the dollar to rand exchange rate`
+      - `SARB` → `S A R B` (let it spell out — better than mispronouncing)
+      - `VFS` → `V F S`
+      - `SA` (standalone) → `South Africa`
+      - `°C` → `degrees Celsius`
+      - `km/h` → `kilometres per hour`
+      - `%` → `percent`
+      - Keep this as a dictionary in the skill; extend over time.
+
+   i. **Add an intro line** at the very top:
+      `Good morning, Peter. This is your briefing for [Weekday], [Day] [Month] [Year]. [pause]`
+      Where `[pause]` is a literal period plus newline — TTS engines render a natural pause from sentence breaks. Do not use SSML for the OpenAI provider (it doesn't support full SSML); rely on punctuation.
+
+   j. **Add an outro line** at the bottom:
+      `[pause] That is the end of your briefing. Have a good day.`
+
+3. **Write the cleaned script** to `~/nanoclaw/reports/audio/YYYY-MM-DD-briefing.txt`. This file serves two purposes: it's the input to the TTS API, and it's sent to TaskMasterQuest as the `transcript` field.
+
+4. **Call the TTS API.** For OpenAI:
+
+   ```
+   POST https://api.openai.com/v1/audio/speech
+   Headers: Authorization: Bearer $OPENAI_API_KEY, Content-Type: application/json
+   Body: {
+     "model": "gpt-4o-mini-tts",
+     "input": "<the cleaned narration script>",
+     "voice": "sage",
+     "instructions": "<see news-anchor instructions block below>",
+     "response_format": "mp3",
+     "speed": 1.0
+   }
+   ```
+
+   The `instructions` parameter is what steers the vibe — this is the same field exposed as "Vibe" on openai.fm. Pass the news-anchor instructions block as a single string. The model uses it to adjust pacing, prosody, and tone consistently across the entire generation.
+
+   **News-anchor instructions (use verbatim):**
+
+   ```
+   Voice Affect: Calm, composed, professional. Project quiet authority without sounding stern.
+
+   Tone: Like a morning news anchor on a quality public broadcaster. Measured. Trustworthy. Not theatrical.
+
+   Pacing: Steady and unhurried. Slight natural pauses between stories and at section transitions. Do not rush.
+
+   Emotion: Neutral and informative. Slightly warmer for opening greetings and closings. Matter-of-fact for news content. Light touch only — no dramatic emphasis.
+
+   Pronunciation: Clear articulation. Treat acronyms read as letters as letter-by-letter (S A R B, V F S). Pronounce place names carefully.
+   ```
+
+   Store this as a constant in the skill module — do not inline it into the API call site, and do not let it drift across runs (consistency is the point).
+
+   The response body is the raw MP3 bytes. Stream it to `~/nanoclaw/reports/audio/YYYY-MM-DD-briefing.mp3`.
+
+   **Length limit:** `gpt-4o-mini-tts` accepts up to 4096 characters per request. If the script is longer (it usually won't be for a daily briefing, but possible), split on paragraph boundaries, call the API for each chunk **with the same `instructions` and `voice` on every chunk** so the vibe stays consistent, and concatenate the MP3s using `ffmpeg -f concat`. Keep chunk boundaries at sentence ends to avoid clicks.
+
+5. **Compute audio duration** using `ffprobe` (already on the Pi for transcription work):
+   ```
+   ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 <file>
+   ```
+   Round to the nearest second. Store in memory for the publish step.
+
+6. **Log success** with: date, script character count, MP3 file size in bytes, duration in seconds, TTS provider, and total time taken in ms.
+
+### Failure handling
+
+- **Markdown file missing:** log `briefing audio: source markdown not found, skipping` and exit cleanly. Do not retry.
+- **TTS API call fails:** log the error, retry once after 60 seconds. If second attempt fails, log final failure and exit. The publish task will see no MP3 and skip itself.
+- **ffprobe fails:** continue without duration metadata. The publish step sends the audio without `audio_duration` — podcast players will still work, just without showing the episode length until first play.
+
+## Task 6 — Publish: Upload briefing to TaskMasterQuest
+
+**Schedule:** `06:28` daily
+
+**Depends on:** Task 5 (Generate TTS audio) — checks for the MP3 file's existence. If missing, skip.
+
+**Inputs:**
+- `~/nanoclaw/reports/audio/YYYY-MM-DD-briefing.mp3`
+- `~/nanoclaw/reports/audio/YYYY-MM-DD-briefing.txt` (transcript)
+
+**Outputs:**
+- HTTP POST to TaskMasterQuest
+- Log entry to the NanoClaw task log
+- Discord notification on success (optional, but recommended for monitoring)
+
+### What to do
+
+1. **Check the MP3 exists.** If not, log `briefing publish: no audio file found, skipping` and exit cleanly.
+
+2. **Compute the metadata:**
+   - `date`: today's date in `YYYY-MM-DD` format (local timezone — Africa/Johannesburg)
+   - `title`: `"Morning Briefing — <Weekday short>, <D> <Month short> <YYYY>"` e.g. `"Morning Briefing — Mon, 25 May 2026"`
+   - `description`: a one-line summary built from the markdown's first sentence of each section. Optional but improves the episode notes in Apple Podcasts.
+   - `transcript`: contents of the `.txt` file
+   - `audio_duration`: from ffprobe in step 5 of Task 5
+
+3. **POST to TaskMasterQuest:**
+
+   ```
+   POST $TMQ_API_BASE/api/briefings
+   Headers:
+     Authorization: Bearer $TMQ_PUBLISH_KEY
+   Body: multipart/form-data
+     feed_slug:       $TMQ_FEED_SLUG
+     date:            <YYYY-MM-DD>
+     title:           <computed title>
+     description:     <computed description>
+     transcript:      <contents of .txt>
+     audio_duration:  <seconds, as string>
+     audio:           <file upload of the .mp3>
+   ```
+
+   TaskMasterQuest resolves the publish key to Peter's user account server-side. NanoClaw does not send a user ID — it cannot, by design.
+
+4. **On HTTP 200:** parse the response JSON. Log success with the returned `audio_url` and `feed_url`. Optionally send a Discord notification to the private thread: `🎙️ Today's briefing is live: <audio_url>`.
+
+5. **On HTTP 401:** log `briefing publish: auth rejected — TMQ_PUBLISH_KEY is wrong, revoked, or expired. Mint a new key in TaskMasterQuest`. Do not retry (the key is invalid; retrying won't help).
+
+6. **On HTTP 4xx other than 401:** log the response body. Do not retry (it's a client-side problem with the request).
+
+7. **On HTTP 5xx or network error:** retry up to 3 times with exponential backoff (60s, 180s, 600s). If all retries fail, log final failure and exit.
+
+### Idempotency
+
+The TaskMasterQuest endpoint upserts on `(feed_slug, date)`. This task can be safely re-run for the same day without creating duplicates. If audio quality is poor and you regenerate the briefing manually, just re-run Task 5 then Task 6 — the new MP3 overwrites the old one in R2 and the same database row is updated.
+
+## File layout on the Pi
+
+```
+~/nanoclaw/
+├── reports/
+│   ├── daily/
+│   │   └── 2026-05-25-daily-report.md       # existing, written by gather tasks
+│   └── audio/
+│       ├── 2026-05-25-briefing.txt          # cleaned narration script
+│       └── 2026-05-25-briefing.mp3          # generated audio
+├── skills/
+│   └── morning-briefing-audio/
+│       ├── SKILL.md                          # this file
+│       ├── generate-tts.ts                  # implementation of Task 5
+│       ├── publish-briefing.ts              # implementation of Task 6
+│       └── narration-cleaner.ts             # markdown→script conversion logic
+```
+
+## Retention
+
+Keep generated audio files locally for **14 days**, then delete via a daily cleanup task. The podcast back catalogue lives on TaskMasterQuest/R2, not on the Pi. This prevents the SD card filling up over time.
+
+Add a cleanup task at `04:00 daily`:
+```
+find ~/nanoclaw/reports/audio -name '*.mp3' -mtime +14 -delete
+find ~/nanoclaw/reports/audio -name '*.txt' -mtime +14 -delete
+```
+
+## Testing checklist
+
+Before running automatically:
+
+- [ ] Manually run `generate-tts.ts` against yesterday's markdown report. Open the MP3 in a media player. Listen to the full thing.
+- [ ] Verify the intro and outro sound natural.
+- [ ] Verify section transitions are clear (each new section feels like a new section).
+- [ ] Listen for mispronunciations — note them and add to the abbreviation dictionary in `narration-cleaner.ts`.
+- [ ] Verify the vibe is consistent end-to-end (no drift between paragraphs). If drift is heard, check that the `instructions` parameter is being passed on every chunk when the script is split.
+- [ ] Manually run `publish-briefing.ts`. Verify HTTP 200 and that the response shows an `audio_url`.
+- [ ] Open Apple Podcasts on the iPhone (already subscribed to the feed). Pull-to-refresh on the show. New episode should appear.
+- [ ] Play the episode. Verify CarPlay shows it correctly (test in actual car).
+
+After two consecutive successful manual runs, enable the scheduled tasks at 06:26 and 06:28.
+
+## Cost notes for awareness
+
+Approximate cost per briefing using OpenAI `gpt-4o-mini-tts` (output billed at $12/1M characters):
+- Average daily report: ~5,000 words ≈ 30,000 characters
+- Per-briefing cost: ~$0.36
+- **Monthly: ~$11**
+
+This is the same model exposed on openai.fm — the voice quality you heard during evaluation is what you'll get in production.
+
+These costs are tracked separately from NanoClaw's Claude API usage and should be added to the personal AI budget line item.
+
+## Future extensions (out of scope for v1)
+
+- **Chapter markers**: emit a chapter list (start time of each section) and pass to TaskMasterQuest. Requires aligning section boundaries to TTS output timestamps — non-trivial.
+- **Instructions tuning**: refine the news-anchor instructions block over time as you discover preferences. Treat it as a tunable parameter; one change at a time so you can A/B against the previous version.
+- **Multi-feed publishing**: publish a shorter "headlines only" feed alongside the full briefing, for days when you want a 3-minute version.
+- **Weekly digest**: a separate Sunday task that summarises the week's briefings into a single longer episode.
+- **Local TTS via Piper**: if you want to remove the API cost dependency entirely, run Piper TTS locally on the Pi 5. Quality is noticeably below `gpt-4o-mini-tts` but acceptable. Pronunciation dictionary in `narration-cleaner.ts` is the main work item. Out of scope for v1 because the cost is modest.
