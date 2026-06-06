@@ -23,7 +23,10 @@ Concat order: 01-international → 02-sa → 03-tasks. The final concatenated MP
 
 ## Inputs / outputs
 
-- **In:** `/workspace/group/briefings/YYYY-MM-DD.md` (today's date in SAST = Africa/Johannesburg = UTC+2)
+- **In:**
+  - `/workspace/group/briefings/YYYY-MM-DD.md` — today's briefing markdown (SAST = Africa/Johannesburg = UTC+2)
+  - `/workspace/agent/Intro Daily Briefing Mono.mp3` — branded intro jingle, plays before segment 1
+  - `/workspace/agent/Transition Mono.mp3` — short transition sting, plays between segments
 - **Out:**
   - `/workspace/group/audio/YYYY-MM-DD-01-international.mp3` — intermediate segment 1
   - `/workspace/group/audio/YYYY-MM-DD-02-sa.mp3` — intermediate segment 2
@@ -128,14 +131,17 @@ Pronunciation: Clear articulation. Treat acronyms read as letters as letter-by-l
 
 ## Step 3 — Concatenate with ffmpeg
 
-`ffmpeg` is installed in the briefing container's overlay image. Use the concat **demuxer** with `-c copy` — all three segments come from the same TTS endpoint with identical codec params, so this is lossless and fast (no re-encoding).
+`ffmpeg` is installed in the briefing container's overlay image. Use the concat **demuxer** with `-c copy` — every input MP3 (TTS segments + intro + transition) is encoded as **24000 Hz mono 128 kbps CBR mp3**, so this is lossless and fast (no re-encoding).
 
-Write a concat list to a temp file, then run ffmpeg:
+The intro jingle plays once before segment 1, and the transition sting plays between each pair of segments:
 
 ```bash
 cat > /tmp/concat-list.txt <<EOF
+file '/workspace/agent/Intro Daily Briefing Mono.mp3'
 file '/workspace/group/audio/YYYY-MM-DD-01-international.mp3'
+file '/workspace/agent/Transition Mono.mp3'
 file '/workspace/group/audio/YYYY-MM-DD-02-sa.mp3'
+file '/workspace/agent/Transition Mono.mp3'
 file '/workspace/group/audio/YYYY-MM-DD-03-tasks.mp3'
 EOF
 
@@ -145,7 +151,11 @@ ffmpeg -y -hide_banner -loglevel error \
   /workspace/group/audio/YYYY-MM-DD.mp3
 ```
 
-If ffmpeg returns non-zero, log the stderr and **do not delete the segment files** — they're the recovery path. The publish task will see no final MP3 and skip.
+ffmpeg may emit `non monotonically increasing dts to muxer` warnings — these are cosmetic for audio-only MP3 concat (MP3 frames carry no real DTS) and the output is valid.
+
+If a required asset is missing (`Intro Daily Briefing Mono.mp3` or `Transition Mono.mp3`) the concat will fail with `No such file` — log the missing path clearly and exit. Treat asset re-encoding the same way: any new intro/transition file **must** be 24000 Hz / 1 channel / 128 kbps CBR mp3, otherwise `-c copy` will produce glitches at the joins.
+
+If ffmpeg returns non-zero for any other reason, log the stderr and **do not delete the segment files** — they're the recovery path. The publish task will see no final MP3 and skip.
 
 ## Step 4 — Capture duration with ffprobe
 
